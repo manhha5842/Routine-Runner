@@ -1,4 +1,4 @@
-//! Auto Open - Core library
+//! Routine Runner - Core library
 //! 
 //! Ứng dụng Windows tự động mở file/app/folder/URL theo lịch
 

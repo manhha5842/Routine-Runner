@@ -1,4 +1,4 @@
-//! Data models for Auto Open
+//! Data models for Routine Runner
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

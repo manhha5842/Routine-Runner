@@ -1,4 +1,4 @@
-//! Auto Open - Main entry point
+//! Routine Runner - Main entry point
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -13,7 +13,7 @@ fn main() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    tracing::info!("Starting Auto Open...");
+    tracing::info!("Starting Routine Runner...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -30,7 +30,7 @@ fn main() {
             }
 
             // Setup tray menu
-            let show_item = MenuItem::with_id(app, "show", "Mở Auto Open", true, None::<&str>)?;
+            let show_item = MenuItem::with_id(app, "show", "Mở Routine Runner", true, None::<&str>)?;
             let pause_item = MenuItem::with_id(app, "pause", "Tạm dừng", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Thoát", true, None::<&str>)?;
             

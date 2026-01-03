@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Auto Open",
+  "productName": "Routine Runner",
   "version": "0.1.0",
   "identifier": "com.autoopen.app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Auto Open",
+        "title": "Routine Runner",
         "width": 900,
         "height": 700,
         "resizable": true,

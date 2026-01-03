@@ -1,8 +1,8 @@
 [package]
 name = "auto-open"
 version = "0.1.0"
-description = "Auto Open - Windows app to automatically open files/apps/folders/URLs on schedule"
-authors = ["Auto Open Team"]
+description = "Routine Runner - Windows app to automatically open files/apps/folders/URLs on schedule"
+authors = ["Routine Runner Team"]
 edition = "2021"
 
 [lib]
