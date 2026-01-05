@@ -110,6 +110,10 @@ pub struct Task {
     pub args: Option<String>,
     pub working_dir: Option<String>,
     
+    // Stdin input for terminal/console apps that require input
+    #[serde(default)]
+    pub stdin_input: Option<String>,
+    
     // Execution options
     pub start_delay_seconds: u32,
     pub run_window_style: RunWindowStyle,
@@ -131,6 +135,17 @@ pub struct Task {
     pub updated_at_utc: DateTime<Utc>,
 }
 
+/// Process info for tracking running processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    pub task_id: String,
+    pub task_name: String,
+    pub process_name: String,
+    pub pid: Option<u32>,
+    pub started_at: DateTime<Utc>,
+    pub is_running: bool,
+}
+
 impl Default for Task {
     fn default() -> Self {
         Self {
@@ -142,6 +157,7 @@ impl Default for Task {
             path_or_url: String::new(),
             args: None,
             working_dir: None,
+            stdin_input: None,
             start_delay_seconds: 0,
             run_window_style: RunWindowStyle::default(),
             wait_policy: WaitPolicy::default(),

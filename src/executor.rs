@@ -31,6 +31,8 @@ pub struct ExecutionResult {
 
 /// Execute a task
 pub fn execute_task(task: &Task) -> Result<ExecutionResult, ExecutorError> {
+    tracing::info!("Executing task: {} (type: {:?}, path: {})", task.name, task.target_type, task.path_or_url);
+    
     // Check if path exists (for file-based targets)
     if matches!(task.target_type, TargetType::Exe | TargetType::File | TargetType::Folder | TargetType::Shortcut) {
         if !std::path::Path::new(&task.path_or_url).exists() {
@@ -85,6 +87,11 @@ fn get_process_name(path: &str) -> String {
         .to_string()
 }
 
+/// Public version for use from commands
+pub fn get_process_name_from_path(path: &str) -> String {
+    get_process_name(path)
+}
+
 /// Check if a process is running by name
 fn is_process_running(process_name: &str) -> bool {
     #[cfg(windows)]
@@ -106,6 +113,11 @@ fn is_process_running(process_name: &str) -> bool {
     {
         false
     }
+}
+
+/// Public version for use from commands
+pub fn check_process_running(process_name: &str) -> bool {
+    is_process_running(process_name)
 }
 
 /// Kill a process by name
@@ -168,17 +180,27 @@ fn execute_exe(task: &Task) -> Result<ExecutionResult, ExecutorError> {
         }
         WaitPolicy::WaitForExit { timeout_seconds } => {
             if let Some(timeout) = timeout_seconds {
-                // Wait with timeout - difficult to capture output without threads/async
-                // So we stick to basic spawn, no output capture for now
+                // Wait with timeout
                 let mut child = cmd.spawn()?;
                 let start = std::time::Instant::now();
                 let timeout_duration = std::time::Duration::from_secs(*timeout as u64);
                 
+                // Check process status with timeout
                 loop {
-                    match child.try_wait()? {
-                        Some(status) => {
+                    // Check if timeout exceeded first
+                    if start.elapsed() >= timeout_duration {
+                        tracing::warn!("Process timeout after {} seconds, killing process", timeout);
+                        let _ = child.kill();
+                        let _ = child.wait(); // Clean up zombie process
+                        return Err(ExecutorError::Timeout(*timeout));
+                    }
+                    
+                    // Try to get process status
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
                             let code = status.code().unwrap_or(-1);
                             let success = check_exit_code(code, &task.success_exit_codes);
+                            tracing::info!("Process exited with code: {}", code);
                             return Ok(ExecutionResult {
                                 success,
                                 exit_code: Some(code),
@@ -186,13 +208,13 @@ fn execute_exe(task: &Task) -> Result<ExecutionResult, ExecutorError> {
                                 output: None, 
                             });
                         }
-                        None => {
-                            if start.elapsed() >= timeout_duration {
-                                // Kill the process
-                                let _ = child.kill();
-                                return Err(ExecutorError::Timeout(*timeout));
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        Ok(None) => {
+                            // Process still running, sleep and check again
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                        Err(e) => {
+                            tracing::error!("Error checking process status: {}", e);
+                            return Err(ExecutorError::IoError(e));
                         }
                     }
                 }

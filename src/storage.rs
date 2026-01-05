@@ -1,7 +1,7 @@
 //! Storage module - SQLite database operations
 
 use crate::models::*;
-use rusqlite::{Connection, params, Result};
+use rusqlite::{Connection, OptionalExtension, params, Result};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -31,6 +31,7 @@ impl Database {
                 path_or_url TEXT NOT NULL,
                 args TEXT,
                 working_dir TEXT,
+                stdin_input TEXT,
                 start_delay_seconds INTEGER DEFAULT 0,
                 run_window_style TEXT DEFAULT 'normal',
                 wait_policy TEXT DEFAULT '{"type":"dont_wait"}',
@@ -79,6 +80,10 @@ impl Database {
                 value TEXT NOT NULL
             );
         "#)?;
+        
+        // Migration: add stdin_input column if not exists
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN stdin_input TEXT", []);
+        
         Ok(())
     }
 
@@ -88,7 +93,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, enabled, name, description, target_type, path_or_url, args, working_dir,
-                    start_delay_seconds, run_window_style, wait_policy, singleton, priority,
+                    stdin_input, start_delay_seconds, run_window_style, wait_policy, singleton, priority,
                     max_retries, retry_backoff_seconds, success_exit_codes, misfire_policy,
                     if_running_action, triggers, conditions, created_at_utc, updated_at_utc
              FROM tasks ORDER BY name"
@@ -104,21 +109,22 @@ impl Database {
                 path_or_url: row.get(5)?,
                 args: row.get(6)?,
                 working_dir: row.get(7)?,
-                start_delay_seconds: row.get::<_, i32>(8)? as u32,
-                run_window_style: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
-                wait_policy: serde_json::from_str(&row.get::<_, String>(10)?).unwrap_or_default(),
-                singleton: row.get::<_, i32>(11)? != 0,
-                priority: row.get(12)?,
-                max_retries: row.get::<_, i32>(13)? as u8,
-                retry_backoff_seconds: row.get::<_, i32>(14)? as u32,
-                success_exit_codes: row.get::<_, Option<String>>(15)?
+                stdin_input: row.get(8)?,
+                start_delay_seconds: row.get::<_, i32>(9)? as u32,
+                run_window_style: serde_json::from_str(&row.get::<_, String>(10)?).unwrap_or_default(),
+                wait_policy: serde_json::from_str(&row.get::<_, String>(11)?).unwrap_or_default(),
+                singleton: row.get::<_, i32>(12)? != 0,
+                priority: row.get(13)?,
+                max_retries: row.get::<_, i32>(14)? as u8,
+                retry_backoff_seconds: row.get::<_, i32>(15)? as u32,
+                success_exit_codes: row.get::<_, Option<String>>(16)?
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                misfire_policy: serde_json::from_str(&row.get::<_, String>(16)?).unwrap_or_default(),
-                if_running_action: serde_json::from_str(&row.get::<_, String>(17)?).unwrap_or_default(),
-                triggers: serde_json::from_str(&row.get::<_, String>(18)?).unwrap_or_default(),
-                conditions: serde_json::from_str(&row.get::<_, String>(19)?).unwrap_or_default(),
-                created_at_utc: row.get::<_, String>(20)?.parse().unwrap_or_else(|_| chrono::Utc::now()),
-                updated_at_utc: row.get::<_, String>(21)?.parse().unwrap_or_else(|_| chrono::Utc::now()),
+                misfire_policy: serde_json::from_str(&row.get::<_, String>(17)?).unwrap_or_default(),
+                if_running_action: serde_json::from_str(&row.get::<_, String>(18)?).unwrap_or_default(),
+                triggers: serde_json::from_str(&row.get::<_, String>(19)?).unwrap_or_default(),
+                conditions: serde_json::from_str(&row.get::<_, String>(20)?).unwrap_or_default(),
+                created_at_utc: row.get::<_, String>(21)?.parse().unwrap_or_else(|_| chrono::Utc::now()),
+                updated_at_utc: row.get::<_, String>(22)?.parse().unwrap_or_else(|_| chrono::Utc::now()),
             })
         })?.collect::<Result<Vec<_>>>()?;
         
@@ -129,10 +135,10 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO tasks (id, enabled, name, description, target_type, path_or_url, args, working_dir,
-                start_delay_seconds, run_window_style, wait_policy, singleton, priority,
+                stdin_input, start_delay_seconds, run_window_style, wait_policy, singleton, priority,
                 max_retries, retry_backoff_seconds, success_exit_codes, misfire_policy,
                 if_running_action, triggers, conditions, created_at_utc, updated_at_utc)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 task.id,
                 task.enabled as i32,
@@ -142,6 +148,7 @@ impl Database {
                 task.path_or_url,
                 task.args,
                 task.working_dir,
+                task.stdin_input,
                 task.start_delay_seconds as i32,
                 serde_json::to_string(&task.run_window_style).unwrap(),
                 serde_json::to_string(&task.wait_policy).unwrap(),
@@ -165,9 +172,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET enabled=?2, name=?3, description=?4, target_type=?5, path_or_url=?6,
-                args=?7, working_dir=?8, start_delay_seconds=?9, run_window_style=?10, wait_policy=?11,
-                singleton=?12, priority=?13, max_retries=?14, retry_backoff_seconds=?15, success_exit_codes=?16,
-                misfire_policy=?17, if_running_action=?18, triggers=?19, conditions=?20, updated_at_utc=?21
+                args=?7, working_dir=?8, stdin_input=?9, start_delay_seconds=?10, run_window_style=?11, wait_policy=?12,
+                singleton=?13, priority=?14, max_retries=?15, retry_backoff_seconds=?16, success_exit_codes=?17,
+                misfire_policy=?18, if_running_action=?19, triggers=?20, conditions=?21, updated_at_utc=?22
              WHERE id=?1",
             params![
                 task.id,
@@ -178,6 +185,7 @@ impl Database {
                 task.path_or_url,
                 task.args,
                 task.working_dir,
+                task.stdin_input,
                 task.start_delay_seconds as i32,
                 serde_json::to_string(&task.run_window_style).unwrap(),
                 serde_json::to_string(&task.wait_policy).unwrap(),
@@ -306,5 +314,80 @@ impl Database {
             )?;
         }
         Ok(())
+    }
+
+    // === Task State ===
+
+    pub fn get_task_states(&self) -> Result<Vec<TaskState>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT task_id, last_run_date_local, last_run_at_utc, last_result, last_error, next_run_at_utc
+             FROM task_state"
+        )?;
+        
+        let states = stmt.query_map([], |row| {
+            Ok(TaskState {
+                task_id: row.get(0)?,
+                last_run_date_local: row.get(1)?,
+                last_run_at_utc: row.get::<_, Option<String>>(2)?
+                    .and_then(|s| s.parse().ok()),
+                last_result: row.get::<_, Option<String>>(3)?
+                    .and_then(|s| serde_json::from_str(&s).ok()),
+                last_error: row.get(4)?,
+                next_run_at_utc: row.get::<_, Option<String>>(5)?
+                    .and_then(|s| s.parse().ok()),
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+        
+        Ok(states)
+    }
+
+    pub fn update_task_state(&self, state: &TaskState) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO task_state (task_id, last_run_date_local, last_run_at_utc, last_result, last_error, next_run_at_utc)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                state.task_id,
+                state.last_run_date_local,
+                state.last_run_at_utc.map(|t| t.to_rfc3339()),
+                state.last_result.as_ref().map(|r| serde_json::to_string(r).unwrap()),
+                state.last_error,
+                state.next_run_at_utc.map(|t| t.to_rfc3339()),
+            ]
+        )?;
+        Ok(())
+    }
+
+    /// Get the last log entry for a specific task
+    pub fn get_last_run_for_task(&self, task_id: &str) -> Result<Option<RunLog>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT run_id, task_id, task_name, trigger_type, scheduled_time_utc,
+                    started_at_utc, finished_at_utc, status, skip_reason, exit_code, error_message, output
+             FROM run_logs WHERE task_id = ?1 ORDER BY started_at_utc DESC LIMIT 1"
+        )?;
+        
+        let log = stmt.query_row([task_id], |row| {
+            Ok(RunLog {
+                run_id: row.get(0)?,
+                task_id: row.get(1)?,
+                task_name: row.get(2)?,
+                trigger_type: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                scheduled_time_utc: row.get::<_, Option<String>>(4)?
+                    .and_then(|s| s.parse().ok()),
+                started_at_utc: row.get::<_, String>(5)?.parse().unwrap_or_else(|_| chrono::Utc::now()),
+                finished_at_utc: row.get::<_, Option<String>>(6)?
+                    .and_then(|s| s.parse().ok()),
+                status: serde_json::from_str(&row.get::<_, String>(7)?).unwrap_or(RunStatus::Failed),
+                skip_reason: row.get::<_, Option<String>>(8)?
+                    .and_then(|s| serde_json::from_str(&s).ok()),
+                exit_code: row.get(9)?,
+                error_message: row.get(10)?,
+                output: row.get(11)?,
+            })
+        }).optional()?;
+        
+        Ok(log)
     }
 }

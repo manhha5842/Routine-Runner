@@ -19,9 +19,29 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Initialize storage
+            // Single instance check - prevent multiple instances
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            
+            let lock_file = app_data_dir.join(".lock");
+            
+            // Try to create lock file
+            if lock_file.exists() {
+                // Check if the lock is stale (older than 5 seconds)
+                if let Ok(metadata) = std::fs::metadata(&lock_file) {
+                    if let Ok(modified) = metadata.modified() {
+                        if let Ok(elapsed) = modified.elapsed() {
+                            if elapsed.as_secs() < 5 {
+                                tracing::warn!("Another instance is already running. Exiting...");
+                                std::process::exit(0);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Create/update lock file
+            std::fs::write(&lock_file, std::process::id().to_string())?;
             tracing::info!("Data directory: {:?}", app_data_dir);
 
             // Initialize database
@@ -72,6 +92,16 @@ fn main() {
 
             // Handle window close -> hide to tray
             let main_window = app.get_webview_window("main").unwrap();
+            
+            // Check if started with --tray flag (from autostart)
+            let args: Vec<String> = std::env::args().collect();
+            let start_in_tray = args.iter().any(|arg| arg == "--tray");
+            
+            if start_in_tray {
+                tracing::info!("Starting in tray mode (autostart)");
+                let _ = main_window.hide();
+            }
+            
             let window_clone = main_window.clone();
             main_window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -85,11 +115,15 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_tasks,
+            commands::get_tasks_with_state,
+            commands::get_task_states,
+            commands::get_running_processes,
             commands::create_task,
             commands::update_task,
             commands::delete_task,
             commands::run_task_now,
             commands::get_logs,
+            commands::get_log_detail,
             commands::get_settings,
             commands::update_settings,
             commands::get_autostart_status,
